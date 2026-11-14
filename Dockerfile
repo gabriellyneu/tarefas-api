@@ -1,6 +1,12 @@
 # ---- Estágio de build ----
 FROM node:22-slim AS build
 WORKDIR /app
+
+# Ferramentas necessárias para compilar o módulo nativo better-sqlite3
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 make g++ \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY package*.json ./
 RUN npm ci
 COPY tsconfig*.json ./
