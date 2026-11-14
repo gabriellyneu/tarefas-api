@@ -1,0 +1,94 @@
+name: CI - API de Tarefas
+
+# Gatilho: Pull Request com destino à branch main
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  analise-estatica:
+    name: 1. Análise estática (código, formatação e segurança)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Análise estática de código (ESLint)
+        run: npm run lint
+      - name: Análise de formatação (Prettier)
+        run: npm run format:check
+      - name: Análise estática de segurança (eslint-plugin-security)
+        run: npm run lint:security
+      - name: Vulnerabilidades em dependências (npm audit)
+        run: npm run audit:deps
+
+  build:
+    name: 2. Build
+    runs-on: ubuntu-latest
+    needs: analise-estatica
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  teste-unitario:
+    name: 3. Teste unitário
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:unit
+
+  teste-integracao:
+    name: 4. Teste de integração (API REST + banco SQL)
+    runs-on: ubuntu-latest
+    needs: teste-unitario
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:integration
+
+  criar-imagem:
+    name: 5. Criação da imagem Docker
+    runs-on: ubuntu-latest
+    needs: teste-integracao
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build da imagem
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: tarefas-api:${{ github.sha }}
+      - name: Teste rápido da imagem (smoke test)
+        run: |
+          docker run -d --name api -p 3000:3000 tarefas-api:${{ github.sha }}
+          sleep 5
+          curl --fail http://localhost:3000/health
+          docker rm -f api
